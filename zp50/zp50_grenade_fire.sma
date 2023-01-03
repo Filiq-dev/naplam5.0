@@ -61,7 +61,7 @@ new g_BurningDuration[MAXPLAYERS+1]
 new g_MsgDamage
 new g_trailSpr, g_exploSpr, g_flameSpr, g_smokeSpr
 
-new cvar_grenade_fire_duration, cvar_grenade_fire_damage, cvar_grenade_fire_slowdown, cvar_grenade_fire_hudicon, cvar_grenade_fire_explosion
+new cvar_grenade_fire_duration, cvar_grenade_fire_damage, cvar_grenade_fire_slowdown, cvar_grenade_fire_hudicon, cvar_grenade_fire_explosion, cvar_grenade_fire_spread
 
 public plugin_init()
 {
@@ -71,6 +71,7 @@ public plugin_init()
 	RegisterHamBots(Ham_Killed, "fw_PlayerKilled")
 	register_forward(FM_SetModel, "fw_SetModel")
 	RegisterHam(Ham_Think, "grenade", "fw_ThinkGrenade")
+	RegisterHam(Ham_Touch, "player", "fw_TouchPlayer")
 	
 	g_MsgDamage = get_user_msgid("Damage")
 	
@@ -79,6 +80,7 @@ public plugin_init()
 	cvar_grenade_fire_slowdown = register_cvar("zp_grenade_fire_slowdown", "0.5")
 	cvar_grenade_fire_hudicon = register_cvar("zp_grenade_fire_hudicon", "1")
 	cvar_grenade_fire_explosion = register_cvar("zp_grenade_fire_explosion", "0")
+	cvar_grenade_fire_spread = register_cvar("zp_grenade_fire_spread", "1")
 }
 
 public plugin_precache()
@@ -187,7 +189,7 @@ public fw_PlayerKilled(victim, attacker, shouldgib)
 	g_BurningDuration[victim] = 0
 }
 
-public client_disconnect(id)
+public client_disconnected(id)
 {
 	// Stop burning
 	remove_task(id+TASK_BURN)
@@ -484,4 +486,46 @@ stock fm_set_rendering(entity, fx = kRenderFxNone, r = 255, g = 255, b = 255, re
 	set_pev(entity, pev_rendercolor, color)
 	set_pev(entity, pev_rendermode, render)
 	set_pev(entity, pev_renderamt, float(amount))
+}
+
+public fw_TouchPlayer(self, other)
+{
+	// Spread cvar disabled or not touching a player
+	if (!get_pcvar_num(cvar_grenade_fire_spread) || !is_user_alive(other))
+		return;
+	
+	// Toucher not on fire or touched player already on fire
+	if (!task_exists(self+TASK_BURN) || task_exists(other+TASK_BURN))
+		return;
+	
+	if (zp_core_is_zombie(self) != zp_core_is_zombie(other))
+		return;
+	
+	// Heat icon
+	if (get_pcvar_num(cvar_grenade_fire_hudicon))
+	{
+		message_begin(MSG_ONE_UNRELIABLE, g_MsgDamage, _, other)
+		write_byte(0) // damage save
+		write_byte(0) // damage take
+		write_long(DMG_BURN) // damage type
+		write_coord(0) // x
+		write_coord(0) // y
+		write_coord(0) // z
+		message_end()
+	}
+
+	if (LibraryExists(LIBRARY_NEMESIS, LibType_Library) && zp_class_nemesis_get(other))
+	{
+		// fire duration (nemesis)
+		g_BurningDuration[other] += get_pcvar_num(cvar_grenade_fire_duration)
+	}
+	else
+	{
+		// fire duration (zombie)
+		g_BurningDuration[other] += get_pcvar_num(cvar_grenade_fire_duration) * 5
+	}
+	
+	// Set burning task on victim
+	remove_task(other+TASK_BURN)
+	set_task(0.2, "burning_flame", other+TASK_BURN, _, _, "b")
 }
